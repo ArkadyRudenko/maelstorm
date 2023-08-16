@@ -1,8 +1,7 @@
-use anyhow::{bail, Context};
-
+use anyhow::Context;
 use maelstrom::*;
 use serde::{Deserialize, Serialize};
-use std::io::{StdoutLock, Write};
+use std::io::StdoutLock;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(tag = "type")]
@@ -22,21 +21,11 @@ impl Node<(), Payload> for EchoNode {
     }
 
     fn step(&mut self, input: Message<Payload>, output: &mut StdoutLock) -> anyhow::Result<()> {
-        match input.body.payload {
+        let mut reply = input.into_reply(Some(&mut self.id));
+        match reply.body.payload {
             Payload::Echo { echo } => {
-                let reply = Message {
-                    src: input.dst,
-                    dst: input.src,
-                    body: Body {
-                        id: Some(self.id),
-                        in_reply_to: input.body.id,
-                        payload: Payload::EchoOk { echo },
-                    },
-                };
-                serde_json::to_writer(&mut *output, &reply)
-                    .context("serialize response to echo")?;
-                output.write_all(b"\n").context("write trailing newline")?;
-                self.id += 1;
+                reply.body.payload = Payload::EchoOk { echo };
+                reply.send(output).context("reply to echo")?;
             }
             Payload::EchoOk { .. } => {}
         }

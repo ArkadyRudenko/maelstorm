@@ -1,9 +1,7 @@
 use anyhow::Context;
-
 use maelstrom::*;
 use serde::{Deserialize, Serialize};
-use std::io::{StdoutLock, Write};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::io::StdoutLock;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(tag = "type")]
@@ -19,7 +17,6 @@ enum Payload {
 struct UniqueNode {
     id: usize,
     node: String,
-    index: AtomicU64,
 }
 
 impl Node<(), Payload> for UniqueNode {
@@ -27,27 +24,16 @@ impl Node<(), Payload> for UniqueNode {
         Ok(UniqueNode {
             node: init.node_id,
             id: 1,
-            index: AtomicU64::new(0),
         })
     }
     fn step(&mut self, input: Message<Payload>, output: &mut StdoutLock) -> anyhow::Result<()> {
-        match input.body.payload {
+        let mut reply = input.into_reply(Some(&mut self.id));
+        match reply.body.payload {
             Payload::Generate => {
                 let mut guid = format!("{}-{}", self.node, self.id);
-                guid.push_str(input.body.id.unwrap().to_string().as_str());
-                let reply = Message {
-                    src: input.dst,
-                    dst: input.src,
-                    body: Body {
-                        id: Some(self.id),
-                        in_reply_to: input.body.id,
-                        payload: Payload::GenerateOk { guid },
-                    },
-                };
-                serde_json::to_writer(&mut *output, &reply)
-                    .context("serialize response to generate")?;
-                output.write_all(b"\n").context("write trailing newline")?;
-                self.id += 1;
+                guid.push_str(reply.body.id.unwrap().to_string().as_str());
+                reply.body.payload = Payload::GenerateOk { guid };
+                reply.send(output).context("reply to generate")?;
             }
             Payload::GenerateOk { .. } => {}
         }
