@@ -1,6 +1,7 @@
 use anyhow::Context;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::io::{BufRead, StdoutLock, Write};
+use tokio::io::{self, AsyncBufReadExt};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Message<Payload> {
@@ -71,7 +72,7 @@ pub trait Node<S, Payload, InjectedPayload = ()> {
     fn from_init(
         state: S,
         init: Init,
-        inject: std::sync::mpsc::Sender<Event<Payload, InjectedPayload>>,
+        inject: tokio::sync::mpsc::Sender<Event<Payload, InjectedPayload>>,
     ) -> anyhow::Result<Self>
     where
         Self: Sized;
@@ -83,13 +84,13 @@ pub trait Node<S, Payload, InjectedPayload = ()> {
     ) -> anyhow::Result<()>;
 }
 
-pub fn main_loop<S, N, P, IP>(init_state: S) -> anyhow::Result<()>
+pub async fn main_loop<S, N, P, IP>(init_state: S) -> anyhow::Result<()>
 where
     P: DeserializeOwned + Send + 'static,
     N: Node<S, P, IP>,
     IP: Send + 'static,
 {
-    let (tx, rx) = std::sync::mpsc::channel();
+    let (tx, mut rx) = tokio::sync::mpsc::channel(100);
 
     let stdin = std::io::stdin().lock();
     let mut stdin = stdin.lines();
@@ -109,7 +110,6 @@ where
     let mut node: N =
         Node::from_init(init_state, init, tx.clone()).context("node initilization failed")?;
 
-    // TODO: reply.into_reply() -> send()
     let reply = Message {
         src: init_msg.dst,
         dst: init_msg.src,
@@ -123,27 +123,33 @@ where
     stdout.write_all(b"\n").context("write trailing newline")?;
 
     drop(stdin);
-    let jh = std::thread::spawn(move || {
-        let stdin = std::io::stdin().lock();
-        for line in stdin.lines() {
-            let line = line.context("Maelstrom input from STDIN could not be read")?;
+    tokio::spawn(async move {
+        let stdin = io::stdin();
+        let mut reader = tokio::io::BufReader::new(stdin);
+        let mut line = String::new();
+
+        loop {
+            let n = reader.read_line(&mut line).await?;
+
+            if n == 0 {
+                // EOF reached
+                break;
+            }
             let input: Message<P> = serde_json::from_str(&line)
                 .context("Maelstrom input from STDIN could not be deserialized")?;
-            if let Err(_) = tx.send(Event::Message(input)) {
+            if let Err(_) = tx.send(Event::Message(input)).await {
                 return Ok::<_, anyhow::Error>(());
             }
+            line.clear();
         }
-        let _ = tx.send(Event::EOF);
+        let _ = tx.send(Event::EOF).await;
         Ok(())
     });
-    for input in rx {
+
+    while let Some(input) = rx.recv().await {
         node.step(input, &mut stdout)
             .context("Node step function failed")?;
     }
-
-    jh.join()
-        .expect("stdin thread panicked")
-        .context("stdin thread err'd")?;
 
     Ok(())
 }

@@ -19,7 +19,7 @@ impl Node<(), Payload> for EchoNode {
     fn from_init(
         _state: (),
         _init: Init,
-        _tx: std::sync::mpsc::Sender<Event<Payload>>,
+        _tx: tokio::sync::mpsc::Sender<Event<Payload>>,
     ) -> anyhow::Result<Self> {
         Ok(EchoNode { id: 1 })
     }
@@ -41,6 +41,7 @@ impl Node<(), Payload> for EchoNode {
     }
 }
 
-fn main() -> anyhow::Result<()> {
-    main_loop::<_, EchoNode, _, _>(())
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    main_loop::<_, EchoNode, _, _>(()).await
 }

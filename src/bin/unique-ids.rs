@@ -23,7 +23,7 @@ impl Node<(), Payload> for UniqueNode {
     fn from_init(
         _state: (),
         init: Init,
-        _tx: std::sync::mpsc::Sender<Event<Payload>>,
+        _tx: tokio::sync::mpsc::Sender<Event<Payload>>,
     ) -> anyhow::Result<Self> {
         Ok(UniqueNode {
             node: init.node_id,
@@ -49,6 +49,7 @@ impl Node<(), Payload> for UniqueNode {
     }
 }
 
-fn main() -> anyhow::Result<()> {
-    main_loop::<_, UniqueNode, _, _>(())
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    main_loop::<_, UniqueNode, _, _>(()).await
 }

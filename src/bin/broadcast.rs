@@ -5,7 +5,6 @@ use rand::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::io::StdoutLock;
-use std::time::Duration;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(tag = "type")]
@@ -47,14 +46,13 @@ impl Node<(), Payload, InjectedPayload> for BroadcastNode {
     fn from_init(
         _state: (),
         init: Init,
-        tx: std::sync::mpsc::Sender<Event<Payload, InjectedPayload>>,
+        tx: tokio::sync::mpsc::Sender<Event<Payload, InjectedPayload>>,
     ) -> anyhow::Result<Self> {
-        std::thread::spawn(move || {
+        tokio::spawn(async move {
             // generate gossip events
-            // TODO: handle EOF
             loop {
-                std::thread::sleep(Duration::from_millis(300));
-                if let Err(_) = tx.send(Event::Injected(InjectedPayload::Gossip)) {
+                tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
+                if let Err(_) = tx.send(Event::Injected(InjectedPayload::Gossip)).await {
                     break;
                 }
             }
@@ -156,6 +154,7 @@ impl Node<(), Payload, InjectedPayload> for BroadcastNode {
     }
 }
 
-fn main() -> anyhow::Result<()> {
-    main_loop::<_, BroadcastNode, _, _>(())
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    main_loop::<_, BroadcastNode, _, _>(()).await
 }
