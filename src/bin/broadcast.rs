@@ -86,7 +86,7 @@ impl Node<(), Payload, InjectedPayload> for BroadcastNode {
                             .iter()
                             .copied()
                             .partition(|m| know_to_n.contains(m));
-                        eprintln!("notify_of {}/{}", notify_of.len(), self.messages.len());
+                        // eprintln!("notify_of {}/{}", notify_of.len(), self.messages.len());
                         // if we know that n knows m, we don't tell n that _we_ know m, so n will
                         // send us m for all eternity. so, we include a couple of extra `m`s so
                         // they gradually know all the things that we know without sending lots of
@@ -137,10 +137,21 @@ impl Node<(), Payload, InjectedPayload> for BroadcastNode {
                         reply.send(output).context("reply to broadcast")?
                     }
                     Payload::Topology { mut topology } => {
-                        self.neighborhood = topology
-                            .remove(&self.node)
-                            .unwrap_or_else(|| panic!("no topology given for node {}", self.node));
+                        let id: String = self.node.chars().filter(|c| c.is_digit(10)).collect();
+                        let mut id: i32 = id.parse().expect(
+                            format!("incorrect id for node {}", self.node.as_str()).as_str(),
+                        );
+                        for i in 0..25 {
+                            if i == id {
+                                continue;
+                            }
+                            self.neighborhood.push(format!("n{}", i));
+                        }
+                        // self.neighborhood = topology
+                        //     .remove(&self.node)
+                        //     .unwrap_or_else(|| panic!("no topology given for node {}", self.node));
                         reply.body.payload = Payload::TopologyOk;
+                        eprintln!("node {} with top: {:?}", self.node, &self.neighborhood);
                         reply.send(output).context("reply to broadcast")?
                     }
                     Payload::BroadcastOk
